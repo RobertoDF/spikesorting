@@ -171,7 +171,6 @@ def check_gpu_availability():
     else:
         "GPU not available"
 
-
 def find_min_distance_TTL(array1, array2):
     min_distances = np.zeros_like(array1, dtype=np.float32)
     for i, time in enumerate(array1):
