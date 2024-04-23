@@ -10,6 +10,31 @@ import os
 from scipy.io.matlab import loadmat
 from datetime import datetime,  timedelta
 import pandas as pd
+from matplotlib.patches import Rectangle
+import seaborn as sns
+import matplotlib.patches as mpatches
+import panel as pn
+from Utils.Settings import channel_label_color_dict
+import spikeinterface.widgets as sw
+import re
+from datetime import time
+from IPython.display import display, HTML
+
+# Function to print in color
+def print_in_color(text, color):
+    color_text = f"<span style='color:{color}'>{text}</span>"
+    display(HTML(color_text))
+
+def get_recording_time(path_recording_folder):
+    # Convert the last part of the path (filename) to a string
+    filename = path_recording_folder.name
+    time_match = re.search(r'_(\d{2})(\d{2})(\d{2})', filename)
+
+    hours, minutes, seconds = map(int, time_match.groups())  # Convert each group to integer
+
+    # Create a datetime.time object
+    extracted_time = time(hours, minutes, seconds)
+    return extracted_time
 
 def check_single_rec_file(directory):
 
@@ -145,7 +170,10 @@ def extract_time(path_recording_folder, path_recording):
         except subprocess.CalledProcessError:
             print("An error occurred while executing the command.")
 
-def find_mat_files_with_same_day(base_path, target_date):
+def find_mat_files_with_same_day(base_path, path_recording_folder):
+    target_date = get_recording_day(path_recording_folder)# day of rec
+    target_time = get_recording_time(path_recording_folder)# time of rec
+
     base_directory = Path(base_path)
     mat_files = []
 
@@ -158,7 +186,12 @@ def find_mat_files_with_same_day(base_path, target_date):
                     # List all .mat files in the directory
                     for mat_file in item.glob('*.mat'):
                         print(f".mat file found: {mat_file}")
-                        mat_files.append(mat_file)
+                        time_mat_file = get_recording_time(mat_file.parent)
+                        if time_mat_file> target_time:
+                            print("Bpod file starts after recording start")
+                            mat_files.append(mat_file)
+                        else:
+                            print_in_color("Bpod file starts before recording start!", "red")
             except Exception as e:
                 print(f"Error processing {item}: {e}")
 
@@ -171,7 +204,14 @@ def check_gpu_availability():
     else:
         "GPU not available"
 
-def find_min_distance_TTL(array1, array2):
+def find_min_distance_TTL(DIO_samples_start_trial, start_times_bpod):
+    print_in_color(f"len DIO:{len(DIO_samples_start_trial)}, len Bpod:{len(start_times_bpod)}", "red")
+
+    array1 = (DIO_samples_start_trial - DIO_samples_start_trial[0]).copy()
+
+    start_times_bpod_zeroed = start_times_bpod - start_times_bpod[0]
+    array2 = start_times_bpod_zeroed
+
     min_distances = np.zeros_like(array1, dtype=np.float32)
     for i, time in enumerate(array1):
         # Find the insertion point
@@ -196,7 +236,15 @@ def find_min_distance_TTL(array1, array2):
 
     print(f"The most distant pulse in array1 is at index {index_of_most_distant_pulse} with time {most_distant_pulse}")
     print(f"This pulse has a minimum distance of {most_distant_difference} to the closest pulse in array2")
-    plt.plot(min_distances)
+
+    fig, ax = plt.subplots()
+    ax.plot(min_distances)
+    ax.set_title("Distances between Bpod and Trodes trial start time" , fontsize=16, fontweight='bold')
+
+    ax.text(0.5, 0.94, "There should be no abrupt spikes", transform=ax.transAxes, ha='center', fontsize=10, style='italic', color="red")
+    ax.set_xlabel("Trial_n")
+    ax.set_ylabel("Time (s)")
+    sns.despine(ax=ax)
     return min_distances
 
 def select_DIO_channel(path_DIO_folder):
@@ -214,13 +262,15 @@ def select_DIO_channel(path_DIO_folder):
     return DIO_dict
 
 
-def stitch_bpod_times(bpod_file, day, DIO_timestamps_1_zeroed):
+def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial):
+    DIO_timestamps_start_trial_zeroed = DIO_timestamps_start_trial - DIO_timestamps_start_trial[0]
     block_n = 0
     trial_start_times = []
     trial_stop_times = []
     stimulus_block = []
     stimulus_name = []
-
+    collect_gaps_between_blocks = []
+    trials_data_dfs = []
     for n, file in enumerate(bpod_file):
         print(file)
         bpod_data = loadmat(file, simplify_cells=True)['SessionData']
@@ -230,25 +280,132 @@ def stitch_bpod_times(bpod_file, day, DIO_timestamps_1_zeroed):
         print(
             f"Bpod session started at {bpod_data['Info']['SessionStartTime_UTC']}, duration: {bpod_data['TrialEndTimestamp'][-1] / 60} min, ended at: {(datetime.strptime(bpod_data['Info']['SessionStartTime_UTC'], '%H:%M:%S') + timedelta(minutes=bpod_data['TrialEndTimestamp'][-1] / 60)).strftime('%H:%M:%S')}")  # not used in calculations
 
-
         if n == 0:
             trial_start_times.extend(bpod_data['TrialStartTimestamp'])
             trial_stop_times.extend(bpod_data['TrialEndTimestamp'])
         else:
             trial_start_times.extend(bpod_data['TrialStartTimestamp'] - bpod_data['TrialStartTimestamp'][0] + np.diff(
-                DIO_timestamps_1_zeroed).max() + prev_last_start)
+                DIO_timestamps_start_trial_zeroed).max() + prev_last_start)
             trial_stop_times.extend(bpod_data['TrialEndTimestamp'] - bpod_data['TrialEndTimestamp'][0] + np.diff(
-                DIO_timestamps_1_zeroed).max() + prev_last_stop)
-
+                DIO_timestamps_start_trial_zeroed).max() + prev_last_stop)
+            collect_gaps_between_blocks.append([prev_last_start, np.diff(
+                DIO_timestamps_start_trial_zeroed).max()])
         stimulus_name.extend(
             [bpod_data["Info"]["SessionProtocolBranchURL"].split("/")[-1]] * len(bpod_data['TrialEndTimestamp']))
         stimulus_block.extend(np.repeat(block_n, len(bpod_data['TrialEndTimestamp'])))
-        prev_start_time = bpod_data["Info"]["SessionStartTime_MATLAB"]
         prev_last_start = bpod_data['TrialStartTimestamp'][-1]
         prev_last_stop = bpod_data['TrialEndTimestamp'][-1]
         block_n += 1
 
-    trials = pd.DataFrame(
+        # extract trial data
+        if "AuditoryTuning" in str(file):
+            print("Extracting AuditoryTuning params")
+            TrialData_dict = {key: value for key, value in bpod_data["Custom"].items() if
+                              key in ['Frequency', "Volume"]}
+            trial_data_df = pd.DataFrame(TrialData_dict)
+        elif "DetectionConfidence" in str(file):
+            print("Extracting DetectionConfidence params")
+            TrialData_dict = {key: value for key, value in bpod_data["Custom"]["TrialData"].items() if
+                              not isinstance(value, int)}
+
+            TrialData_dict = {key: value[:bpod_data["nTrials"]] for key, value in TrialData_dict.items() if
+                              len(value) == bpod_data["nTrials"] or len(value) == bpod_data["nTrials"] + 1}
+            trial_data_df = pd.DataFrame(TrialData_dict)
+
+        assert bpod_data["nTrials"] == len(trial_data_df)
+        trials_data_dfs.append(trial_data_df)
+
+    trials = pd.concat([pd.DataFrame(
         {"bpod_start_time": trial_start_times, "bpod_stop_time": trial_stop_times, "stimulus_block": stimulus_block,
-         "stimulus_name": stimulus_name})
+         "stimulus_name": stimulus_name}),  pd.concat(trials_data_dfs, ignore_index=True)], axis=1)
+
+    fig, ax = plt.subplots()
+    ax.set_title("Check gap was correctly identified")
+    trials.plot.scatter(x="bpod_start_time", y="stimulus_name", s=5, ax=ax)
+
+    ylim = ax.get_ylim()
+
+    if len(collect_gaps_between_blocks)>0:
+        ax.text(0.5, 0.5, f"N={ len(collect_gaps_between_blocks)} gaps found", transform=ax.transAxes, ha='center', va='center')
+
+        for gap in collect_gaps_between_blocks:
+            rect = Rectangle((gap[0],  ylim[0] + (ylim[1] - ylim[0])*0.02), gap[1], (ylim[1] - ylim[0])*0.96, fill=None, edgecolor='r', linewidth=2, alpha=.5)
+            ax.add_patch(rect)
+    else:
+        ax.text(0.5, 0.8, "No gaps found", transform=ax.transAxes, ha='center',
+                va='center')
+
+    sns.despine(ax=ax)
     return trials
+
+
+def select_DIO_sync_trial_trace(path_recording_folder, rec_file_name):
+    '''We select from the DIO trace containing TTL pulses only the trial starts (the ones)'''
+    path_DIO_folder = Path(path_recording_folder, f"{rec_file_name[:rec_file_name.rfind('.')]}.DIO")
+    DIO_dict = select_DIO_channel(path_DIO_folder)
+    # Each data point is (timestamp, state) -> break into separate arrays
+    DIO_data = DIO_dict['data'].copy()
+    DIO_states = np.array([tup[1] for tup in DIO_data])
+    DIO_samples = np.array([tup[0] for tup in DIO_data])
+    DIO_timestamps = np.array([tup[0] for tup in DIO_data])/float(DIO_dict['clockrate'])
+    assert DIO_states.shape == DIO_timestamps.shape
+    DIO_timestamps_start_trial = DIO_timestamps[DIO_states.astype(bool)].copy()
+    DIO_samples_start_trial = DIO_samples[DIO_states.astype(bool)].copy()
+
+    return DIO_timestamps_start_trial, DIO_samples_start_trial
+
+def Trim_TTLs(trials, DIO_timestamps_start_trial, DIO_samples_start_trial, min_distances):
+    if len(trials)!=len(DIO_timestamps_start_trial):
+        print("unequal numbers of trials between bpod and DIO")
+        if np.argmax(min_distances) == len(trials):
+            print("One extra TTL pulse received on DIO at the end of the session")
+            DIO_timestamps_start_trial = DIO_timestamps_start_trial[:-1]
+            DIO_samples_start_trial =  DIO_samples_start_trial[:-1]
+            print("extra TTL pulse removed")
+    return DIO_timestamps_start_trial,  DIO_samples_start_trial
+
+def assign_DIO_times_to_trials(trials, DIO_timestamps_start_trial, DIO_samples_start_trial):
+    fig, ax = plt.subplots()
+    ax.plot(DIO_timestamps_start_trial, trials["bpod_start_time"])
+    ax.set_xlabel("DIO trials start time (s)")
+    ax.set_xlabel("Bpod trials start time (s)")
+    ax.set_title("Should be the straightest line")
+    trials["DIO_start_sample"] = DIO_samples_start_trial
+    trials["DIO_start_time"] = DIO_timestamps_start_trial
+    trials["DIO_start_sample_zeroed"] = trials["DIO_start_sample"] - trials["DIO_start_sample"][0]
+    return trials
+
+
+def plot_probe(raw_rec, channel_labels):
+    y_lim_widget = pn.widgets.EditableRangeSlider(
+        name='y_lim', start=0, end=raw_rec.get_channel_locations().max(),
+        value=(raw_rec.get_channel_locations().max() - 800, raw_rec.get_channel_locations().max() - 200),
+        step=10)
+
+    channels_colors = [channel_label_color_dict[label] for label in channel_labels]
+
+    @pn.depends(y_lim_widget)
+    def inspect_probes_channels_labels(ylim):
+        fig, axs = plt.subplots(1, 3, figsize=(10, 6))
+
+        sw.plot_probe_map(raw_rec, color_channels=channels_colors, ax=axs[0], with_channel_ids=False)
+
+        sw.plot_probe_map(raw_rec, color_channels=channels_colors, ax=axs[1], with_channel_ids=False)
+
+        patches = [mpatches.Patch(color=color, label=label) for label, color in channel_label_color_dict.items()]
+
+        axs[2].legend(handles=patches, loc='upper left', frameon=False);
+        axs[2].axis("off");
+        # axs[0].
+
+        axs[1].set_ylim(ylim[0], ylim[1])
+
+        # Draw a rectangle on axs[0] with these ylims
+        # Assuming arbitrary x values, here 0 to 10 for illustration
+        rect = mpatches.Rectangle((-100, ylim[0]), 600, ylim[1] - ylim[0], linewidth=1, edgecolor='r', facecolor='none')
+
+        axs[0].add_patch(rect)
+        plt.close()
+        return pn.pane.Matplotlib(fig)
+
+    return pn.Column(y_lim_widget, inspect_probes_channels_labels)
