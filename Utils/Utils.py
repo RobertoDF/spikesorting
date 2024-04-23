@@ -19,6 +19,7 @@ import spikeinterface.widgets as sw
 import re
 from datetime import time
 from IPython.display import display, HTML
+import sys
 
 # Function to print in color
 def print_in_color(text, color):
@@ -123,8 +124,12 @@ def extract_DIO(path_recording_folder, path_recording):
         command = f"{path_to_trodes_export} -rec {path_recording} -dio"
         # Run the command
         try:
-            subprocess.run(command, check=True, shell=True, stdout=subprocess.PIPE, text=True)
-            print("Command executed successfully")
+            if "win" in sys.platform:
+                subprocess.run(command, check=True, shell=False, stdout=subprocess.PIPE, text=True)
+                print("Command executed successfully")
+            else:
+                subprocess.run(command, check=True, shell=True, stdout=subprocess.PIPE, text=True)
+                print("Command executed successfully")
         except subprocess.CalledProcessError:
             print("An error occurred while executing the command.")
 
