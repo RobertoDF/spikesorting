@@ -122,10 +122,9 @@ def extract_DIO(path_recording_folder, path_recording):
     if not has_dio_folder(path_recording_folder):
         print("Extract DIO")
         command = f"{path_to_trodes_export} -rec {path_recording} -dio"
-        # Run the command
         try:
             if "win" in sys.platform:
-                subprocess.run(command, check=True, shell=False, stdout=subprocess.PIPE, text=True)
+                subprocess.run(command, check=True, shell=False, text=True)
                 print("Command executed successfully")
             else:
                 subprocess.run(command, check=True, shell=True, stdout=subprocess.PIPE, text=True)
