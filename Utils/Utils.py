@@ -17,7 +17,7 @@ import panel as pn
 from Utils.Settings import channel_label_color_dict
 import spikeinterface.widgets as sw
 import re
-from datetime import time
+from datetime import time, date
 from IPython.display import display, HTML
 import sys
 
@@ -174,9 +174,11 @@ def extract_time(path_recording_folder, path_recording):
         except subprocess.CalledProcessError:
             print("An error occurred while executing the command.")
 
-def find_mat_files_with_same_day(base_path, path_recording_folder):
+def find_mat_files_with_same_day(base_path, path_recording_folder, raw_rec):
+    time_rec = get_recording_time(path_recording_folder)
+    end_time_rec = (datetime.combine(date.today(),  time_rec ) + timedelta(seconds=raw_rec.get_total_duration())).time() # we need a date to add times
     target_date = get_recording_day(path_recording_folder)# day of rec
-    target_time = get_recording_time(path_recording_folder)# time of rec
+    start_target_time = get_recording_time(path_recording_folder)# time of rec
 
     base_directory = Path(base_path)
     mat_files = []
@@ -190,16 +192,19 @@ def find_mat_files_with_same_day(base_path, path_recording_folder):
                     # List all .mat files in the directory
                     for mat_file in item.glob('*.mat'):
                         print(f".mat file found: {mat_file}")
-                        time_mat_file = get_recording_time(mat_file.parent)
-                        if time_mat_file> target_time:
-                            print("Bpod file starts after recording start")
-                            mat_files.append(mat_file)
+                        bpod_data = loadmat(mat_file, simplify_cells=True)['SessionData']
+                        start_time_mat_file  = datetime.strptime(bpod_data['Info']['SessionStartTime_UTC'], '%H:%M:%S').time()
+                        if (start_time_mat_file> start_target_time) and (start_time_mat_file< end_time_rec):
+                            print("Bpod file starts within the Trodes recording")
+                            mat_files.append((mat_file, start_time_mat_file))
                         else:
-                            print_in_color("Bpod file starts before recording start!", "red")
+                            print_in_color("Bpod file starts outside the Trodes recording!", "red")
             except Exception as e:
                 print(f"Error processing {item}: {e}")
 
-    return mat_files
+    mat_files.sort(key=lambda x: x[1])  # x[1] is the time part of the tuple
+    return [file for file, _ in mat_files]  # Return only the file paths
+
 
 def check_gpu_availability():
     if torch.cuda.is_available():
@@ -255,18 +260,18 @@ def select_DIO_channel(path_DIO_folder):
     DIO_with_data = []
     for file in os.listdir(path_DIO_folder):
         DIO_dict = readTrodesExtractedDataFile(Path(path_DIO_folder, file))
-        if len(DIO_dict['data'])>1:
+        if len(DIO_dict['data'])>2:
             print(f"{file} contains data")
             DIO_with_data.append(DIO_dict)
     print(f"{len(DIO_with_data)} DIO files with data")
-    if len(DIO_with_data)==1:
-        DIO_dict = DIO_with_data[0]
-    else:
-        print("Multiple DIO files!")
+    assert len(DIO_with_data)==1, "Multiple DIO files!"
+    DIO_dict = DIO_with_data[0]
+
     return DIO_dict
 
 
 def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial):
+    assert len(bpod_file)<3, "More than 2 bpod files!"
     DIO_timestamps_start_trial_zeroed = DIO_timestamps_start_trial - DIO_timestamps_start_trial[0]
     block_n = 0
     trial_start_times = []
@@ -283,7 +288,7 @@ def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial):
         assert date_bpod == date_trodes, "Bpod and recording software days do not match."
         print(
             f"Bpod session started at {bpod_data['Info']['SessionStartTime_UTC']}, duration: {bpod_data['TrialEndTimestamp'][-1] / 60} min, ended at: {(datetime.strptime(bpod_data['Info']['SessionStartTime_UTC'], '%H:%M:%S') + timedelta(minutes=bpod_data['TrialEndTimestamp'][-1] / 60)).strftime('%H:%M:%S')}")  # not used in calculations
-
+        print(f"number trials: {len(bpod_data['TrialStartTimestamp'])}")
         if n == 0:
             trial_start_times.extend(bpod_data['TrialStartTimestamp'])
             trial_stop_times.extend(bpod_data['TrialEndTimestamp'])
@@ -372,7 +377,7 @@ def assign_DIO_times_to_trials(trials, DIO_timestamps_start_trial, DIO_samples_s
     fig, ax = plt.subplots()
     ax.plot(DIO_timestamps_start_trial, trials["bpod_start_time"])
     ax.set_xlabel("DIO trials start time (s)")
-    ax.set_xlabel("Bpod trials start time (s)")
+    ax.set_ylabel("Bpod trials start time (s)")
     ax.set_title("Should be the straightest line")
     trials["DIO_start_sample"] = DIO_samples_start_trial
     trials["DIO_start_time"] = DIO_timestamps_start_trial
@@ -413,3 +418,4 @@ def plot_probe(raw_rec, channel_labels):
         return pn.pane.Matplotlib(fig)
 
     return pn.Column(y_lim_widget, inspect_probes_channels_labels)
+
