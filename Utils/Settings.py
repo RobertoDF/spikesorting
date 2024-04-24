@@ -13,4 +13,4 @@ channel_label_color_dict = {
     "out": "#2196F3"   # Blue
 }
 
-trodesexport_flags_to_folder = {"analogio":".analog", "dio":".DIO", "kilosort": ".kilosort"}
+trodesexport_flags_to_folder = {"analogio":".analog", "dio":".DIO", "kilosort": ".kilosort", "time": ".time"}

@@ -120,6 +120,27 @@ def call_trodesexport(path_recording_folder, path_recording, flag):
         except subprocess.CalledProcessError:
             print("An error occurred while executing the command.")
 
+def find_file(root_folder, target_file_name):
+    found_files = []
+    for dirpath, dirnames, filenames in os.walk(root_folder):
+        for filename in filenames:
+            if target_file_name in filename:
+                found_files.append(os.path.join(dirpath, filename))
+    print(f"Found {len(found_files)} timestamps.dat files")
+    return found_files
+
+def get_timestamps_from_rec(path_recording_folder,  path_recording):
+    path_timestamps = find_file(path_recording_folder, "timestamps.dat")
+    if path_timestamps is None:
+        print("Extracting timestamps using trodesexport -time")
+        call_trodesexport(path_recording_folder, path_recording, "time")
+        path_timestamps = find_file(path_recording_folder, "timestamps.dat")
+    timestamps_dict = readTrodesExtractedDataFile(path_timestamps[0])
+    timestamps = timestamps_dict["data"]["time"]
+    timestamps = timestamps - timestamps[0]
+    return timestamps
+
+
 
 def find_mat_files_with_same_day(base_path, path_recording_folder, raw_rec):
     ''' Checks in bpod_session folder for folder with the same date as the recording.
