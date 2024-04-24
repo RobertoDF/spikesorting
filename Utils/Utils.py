@@ -63,19 +63,28 @@ def check_single_rec_file(directory):
         return "Error in counting .rec files."
 
 
-def check_timestamp_gaps(raw_dat):
+def check_timestamp_gaps(raw_dat, times):
 
     # Calculate differences between consecutive timestamps
-    intervals = np.diff(raw_dat.get_times())
+    intervals = np.diff(times)
 
     # Find where the intervals exceed the threshold
-    gaps = intervals > max_ISI_gap_recording
+    gap_indices = np.where(intervals > max_ISI_gap_recording)[0]
 
-    if any(gaps):
-        print("Gaps detected at indices:", np.where(gaps)[0])
-        return gaps
+    gap_starts = times[gap_indices]
+    gap_stops = times[gap_indices + 1]
+
+    if len(gap_indices)>1:
+        for start, stop in zip(gap_starts, gap_stops):
+            print(f"Gap from {start} to {stop}, duration {np.round(stop - start,6)} s")
     else:
         print("No gaps detected.")
+    return [gap_starts, gap_stops]
+
+def check_overlap(trial_start, trial_stop, gap_starts, gap_stops):
+    # Check if any gap start is less than the trial stop and any gap stop is more than the trial start
+    overlap = ((gap_starts < trial_stop) & (gap_stops > trial_start)).any()
+    return overlap
 
 def get_mouse_name(directory):
     # Define the path
@@ -119,6 +128,30 @@ def call_trodesexport(path_recording_folder, path_recording, flag):
             print("Command executed successfully")
         except subprocess.CalledProcessError:
             print("An error occurred while executing the command.")
+
+
+def clean_trials(trials, raw_rec, gaps_start_stop):
+    times = raw_rec.get_times()
+    trials["start_time"] = times[trials["DIO_start_sample_zeroed"]]
+    trials["duration"] = trials["bpod_stop_time"] - trials["bpod_start_time"]
+    trials["stop_time"] = trials["start_time"] + trials["duration"]
+
+    # exclude trials that contain gaps
+    if len(gaps_start_stop[0])>1:
+        trials['has_gap'] = trials.apply(
+            lambda row: check_overlap(row['start_time'], row['stop_time'], gaps_start_stop[0], gaps_start_stop[1]),
+            axis=1)
+
+    if trials['has_gap'].sum() > 1:
+        print(f"Exclude {trials['has_gap'].sum()} trials because of occuring recording gaps within.")
+        trials = trials.query('has_gap == False')
+    trials.drop(columns=["has_gap", "bpod_stop_time", "bpod_start_time", "DIO_start_sample", "DIO_start_time"])
+    return trials
+
+def check_overlap(trial_start, trial_stop, gap_starts, gap_stops):
+    # Check if any gap start is less than the trial stop and any gap stop is more than the trial start
+    overlap = ((gap_starts < trial_stop) & (gap_stops > trial_start)).any()
+    return overlap
 
 def find_file(root_folder, target_file_name):
     found_files = []
@@ -352,10 +385,11 @@ def assign_DIO_times_to_trials(trials, DIO_timestamps_start_trial, DIO_samples_s
     ax.plot(DIO_timestamps_start_trial, trials["bpod_start_time"])
     ax.set_xlabel("DIO trials start time (s)")
     ax.set_ylabel("Bpod trials start time (s)")
-    ax.set_title("Should be the straightest line")
+    ax.set_title("This should be the straightest line")
     trials["DIO_start_sample"] = DIO_samples_start_trial
     trials["DIO_start_time"] = DIO_timestamps_start_trial
     trials["DIO_start_sample_zeroed"] = trials["DIO_start_sample"] - trials["DIO_start_sample"][0]
+    sns.despine(ax=ax)
     return trials
 
 

@@ -1,6 +1,6 @@
 
 
-path_to_trodes_export="/alzheimer/Roberto/Software/Trodes_2-5-0_Ubuntu2004/trodesexport"
+path_to_trodes_export=r"C:\Program Files\Trodes_2-4-2_Windows64\trodesexport"
 
 
 max_ISI_gap_recording = 0.001  # max intersample interval (ISI), above which the period is considered a "gap" in the recording
