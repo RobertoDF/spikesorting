@@ -12,3 +12,5 @@ channel_label_color_dict = {
     "noise": "#FFC107", # Amber
     "out": "#2196F3"   # Blue
 }
+
+trodesexport_flags_to_folder = {"analogio":".analog", "dio":".DIO", "kilosort": ".kilosort"}

@@ -14,7 +14,7 @@ from matplotlib.patches import Rectangle
 import seaborn as sns
 import matplotlib.patches as mpatches
 import panel as pn
-from Utils.Settings import channel_label_color_dict
+from Utils.Settings import channel_label_color_dict, trodesexport_flags_to_folder
 import spikeinterface.widgets as sw
 import re
 from datetime import time, date
@@ -96,66 +96,23 @@ def get_recording_day(directory):
     date = filename.split('_')[0]  # Split on underscore and take the first part
 
     return date
-def check_for_dio_folder(directory):
 
-
+def has_folder(directory, extension):
     # Iterate through all items in the directory
     for file_path in directory.iterdir():
         # Check if the item is a directory and ends with .DIO
-        if file_path.is_dir() and file_path.name.endswith('.DIO'):
-            return f"Folder with '.DIO' found: {file_path.name}"
-
-    return "No folder with '.DIO' found."
-
-def has_dio_folder(directory):
-    # Iterate through all items in the directory
-    for file_path in directory.iterdir():
-        # Check if the item is a directory and ends with .DIO
-        if file_path.is_dir() and file_path.name.endswith('.DIO'):
-            print( f"'.DIO' folder alread available: {file_path.name}")
+        if file_path.is_dir() and file_path.name.endswith(extension):
+            print( f"{extension} folder alread available: {file_path.name}")
             return True
-    print("No folder with '.DIO' found.")
+    print(f"No folder with {extension} found.")
     return False
 
-
-def extract_DIO(path_recording_folder, path_recording):
-    if not has_dio_folder(path_recording_folder):
-        print("Extract DIO")
-        command = f"{path_to_trodes_export} -rec {path_recording} -dio"
-        try:
-            if "win" in sys.platform:
-                subprocess.run(command, check=True, shell=False, text=True)
-                print("Command executed successfully")
-            else:
-                subprocess.run(command, check=True, shell=True, stdout=subprocess.PIPE, text=True)
-                print("Command executed successfully")
-        except subprocess.CalledProcessError:
-            print("An error occurred while executing the command.")
-
-def has_analogio_folder(directory):
-    # Iterate through all items in the directory
-    for file_path in directory.iterdir():
-        # Check if the item is a directory and ends with .DIO
-        if file_path.is_dir() and file_path.name.endswith('.analog'):
-            print( f"'.analog' folder alread available: {file_path.name}")
-            return True
-    print("No folder with '.analog' found.")
-    return False
-
-def has_time_folder(directory):
-    # Iterate through all items in the directory
-    for file_path in directory.iterdir():
-        # Check if the item is a directory and ends with .DIO
-        if file_path.is_dir() and file_path.name.endswith('.time'):
-            print( f"'.time' folder alread available: {file_path.name}")
-            return True
-    print("No folder with '.time' found.")
-    return False
-
-def extract_analogIO(path_recording_folder, path_recording):
-    if not has_analogio_folder(path_recording_folder):
-        print("Extract analogIO")
-        command = f"{path_to_trodes_export} -rec {path_recording} -analogio"
+def call_trodesexport(path_recording_folder, path_recording, flag):
+    ''' Extract flag info using trodesexport C++ executable
+    '''
+    if not has_folder(path_recording_folder, trodesexport_flags_to_folder[flag]):
+        print(f"Extract {flag}")
+        command = f"{path_to_trodes_export} -rec {path_recording} -{flag}"
         # Run the command
         try:
             subprocess.run(command, check=True, shell=True, stdout=subprocess.PIPE, text=True)
@@ -163,18 +120,11 @@ def extract_analogIO(path_recording_folder, path_recording):
         except subprocess.CalledProcessError:
             print("An error occurred while executing the command.")
 
-def extract_time(path_recording_folder, path_recording):
-    if not has_time_folder(path_recording_folder):
-        print("Extract timestamps")
-        command = f"{path_to_trodes_export} -rec {path_recording} -time"
-        # Run the command
-        try:
-            subprocess.run(command, check=True, shell=True, stdout=subprocess.PIPE, text=True)
-            print("Command executed successfully")
-        except subprocess.CalledProcessError:
-            print("An error occurred while executing the command.")
 
 def find_mat_files_with_same_day(base_path, path_recording_folder, raw_rec):
+    ''' Checks in bpod_session folder for folder with the same date as the recording.
+    Exclude files recorded outside the recording.
+    '''
     time_rec = get_recording_time(path_recording_folder)
     end_time_rec = (datetime.combine(date.today(),  time_rec ) + timedelta(seconds=raw_rec.get_total_duration())).time() # we need a date to add times
     target_date = get_recording_day(path_recording_folder)# day of rec
@@ -214,6 +164,7 @@ def check_gpu_availability():
         "GPU not available"
 
 def find_min_distance_TTL(DIO_samples_start_trial, start_times_bpod):
+    ''' Find the minimum distances acrosss DIO and bpod timestamps for each TTL pulse (start trial, 0 to 1)'''
     print_in_color(f"len DIO:{len(DIO_samples_start_trial)}, len Bpod:{len(start_times_bpod)}", "red")
 
     array1 = (DIO_samples_start_trial - DIO_samples_start_trial[0]).copy()
@@ -257,10 +208,12 @@ def find_min_distance_TTL(DIO_samples_start_trial, start_times_bpod):
     return min_distances
 
 def select_DIO_channel(path_DIO_folder):
+    ''' Check if multiple DIO channels have info. Select the one with more than 10 pulses.
+    '''
     DIO_with_data = []
     for file in os.listdir(path_DIO_folder):
         DIO_dict = readTrodesExtractedDataFile(Path(path_DIO_folder, file))
-        if len(DIO_dict['data'])>2:
+        if len(DIO_dict['data'])>10: # stupid euristic
             print(f"{file} contains data")
             DIO_with_data.append(DIO_dict)
     print(f"{len(DIO_with_data)} DIO files with data")
