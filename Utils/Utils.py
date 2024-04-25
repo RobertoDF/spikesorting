@@ -63,7 +63,7 @@ def check_single_rec_file(directory):
         return "Error in counting .rec files."
 
 
-def check_timestamp_gaps(raw_dat, times):
+def check_timestamps_gaps(raw_dat, times):
 
     # Calculate differences between consecutive timestamps
     intervals = np.diff(times)
@@ -141,11 +141,15 @@ def clean_trials(trials, raw_rec, gaps_start_stop):
         trials['has_gap'] = trials.apply(
             lambda row: check_overlap(row['start_time'], row['stop_time'], gaps_start_stop[0], gaps_start_stop[1]),
             axis=1)
+    else:
+        trials['has_gap'] = False
 
     if trials['has_gap'].sum() > 1:
         print(f"Exclude {trials['has_gap'].sum()} trials because of occuring recording gaps within.")
         trials = trials.query('has_gap == False')
     trials.drop(columns=["has_gap", "bpod_stop_time", "bpod_start_time", "DIO_start_sample", "DIO_start_time"])
+    trials.index.name = "trial_n"
+
     return trials
 
 def check_overlap(trial_start, trial_stop, gap_starts, gap_stops):
@@ -168,6 +172,7 @@ def get_timestamps_from_rec(path_recording_folder,  path_recording):
         print("Extracting timestamps using trodesexport -time")
         call_trodesexport(path_recording_folder, path_recording, "time")
         path_timestamps = find_file(path_recording_folder, "timestamps.dat")
+    print(f"Read timestamps from {path_timestamps[0]}")
     timestamps_dict = readTrodesExtractedDataFile(path_timestamps[0])
     timestamps = timestamps_dict["data"]["time"]
     timestamps = timestamps - timestamps[0]
@@ -217,7 +222,7 @@ def check_gpu_availability():
     else:
         "GPU not available"
 
-def find_min_distance_TTL(DIO_samples_start_trial, start_times_bpod):
+def find_min_distance_TTL(DIO_samples_start_trial, start_times_bpod, ax=None):
     ''' Find the minimum distances acrosss DIO and bpod timestamps for each TTL pulse (start trial, 0 to 1)'''
     print_in_color(f"len DIO:{len(DIO_samples_start_trial)}, len Bpod:{len(start_times_bpod)}", "red")
 
@@ -251,9 +256,10 @@ def find_min_distance_TTL(DIO_samples_start_trial, start_times_bpod):
     print(f"The most distant pulse in array1 is at index {index_of_most_distant_pulse} with time {most_distant_pulse}")
     print(f"This pulse has a minimum distance of {most_distant_difference} to the closest pulse in array2")
 
-    fig, ax = plt.subplots()
+    if ax is None:
+        fig, ax = plt.subplots()
     ax.plot(min_distances)
-    ax.set_title("Distances between Bpod and Trodes trial start time" , fontsize=16, fontweight='bold')
+    ax.set_title("Distances between Bpod and Trodes trial start time" , fontsize=12, fontweight='bold')
 
     ax.text(0.5, 0.94, "There should be no abrupt spikes", transform=ax.transAxes, ha='center', fontsize=10, style='italic', color="red")
     ax.set_xlabel("Trial_n")
@@ -277,7 +283,7 @@ def select_DIO_channel(path_DIO_folder):
     return DIO_dict
 
 
-def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial):
+def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial, ax=None):
     assert len(bpod_file)<3, "More than 2 bpod files!"
     DIO_timestamps_start_trial_zeroed = DIO_timestamps_start_trial - DIO_timestamps_start_trial[0]
     block_n = 0
@@ -313,7 +319,7 @@ def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial):
         prev_last_stop = bpod_data['TrialEndTimestamp'][-1]
         block_n += 1
 
-        # extract trial data
+        # we assume "AuditoryTuning" block is always before "DetectionConfidence"
         if "AuditoryTuning" in str(file):
             print("Extracting AuditoryTuning params")
             TrialData_dict = {key: value for key, value in bpod_data["Custom"].items() if
@@ -335,7 +341,8 @@ def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial):
         {"bpod_start_time": trial_start_times, "bpod_stop_time": trial_stop_times, "stimulus_block": stimulus_block,
          "stimulus_name": stimulus_name}),  pd.concat(trials_data_dfs, ignore_index=True)], axis=1)
 
-    fig, ax = plt.subplots()
+    if ax is None:
+        fig, ax = plt.subplots()
     ax.set_title("Check gap was correctly identified")
     trials.plot.scatter(x="bpod_start_time", y="stimulus_name", s=5, ax=ax)
 
@@ -380,8 +387,9 @@ def Trim_TTLs(trials, DIO_timestamps_start_trial, DIO_samples_start_trial, min_d
             print("extra TTL pulse removed")
     return DIO_timestamps_start_trial,  DIO_samples_start_trial
 
-def assign_DIO_times_to_trials(trials, DIO_timestamps_start_trial, DIO_samples_start_trial):
-    fig, ax = plt.subplots()
+def assign_DIO_times_to_trials(trials, DIO_timestamps_start_trial, DIO_samples_start_trial, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots()
     ax.plot(DIO_timestamps_start_trial, trials["bpod_start_time"])
     ax.set_xlabel("DIO trials start time (s)")
     ax.set_ylabel("Bpod trials start time (s)")
