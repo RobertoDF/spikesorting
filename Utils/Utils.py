@@ -1,10 +1,15 @@
 from pathlib import Path
 import subprocess
-from Utils.Settings import path_to_trodes_export
+from Utils.Paths import path_to_trodes_export
 import numpy as np
 from Utils.Settings import max_ISI_gap_recording
 import torch
+from tqdm import tqdm
+from spikeinterface.core import write_binary_recording
+from Utils.Settings import job_kwargs
+from spikeinterface import create_sorting_analyzer
 import matplotlib.pyplot as plt
+from spikeinterface.sorters import read_sorter_folder
 from Utils.TrodesToPython.readTrodesExtractedDataFile3 import readTrodesExtractedDataFile
 import os
 from scipy.io.matlab import loadmat
@@ -19,12 +24,16 @@ import spikeinterface.widgets as sw
 import re
 from datetime import time, date
 from IPython.display import display, HTML
-import sys
+from colored import Fore, Back, Style
 
 # Function to print in color
 def print_in_color(text, color):
-    color_text = f"<span style='color:{color}'>{text}</span>"
-    display(HTML(color_text))
+    if color=="red":
+        print(f"{Fore.red}{Back.white}{text}{Style.reset}")
+    elif color == "green":
+            print(f"{Fore.green}{Back.white}{text}{Style.reset}")
+
+
 
 def get_recording_time(path_recording_folder):
     # Convert the last part of the path (filename) to a string
@@ -145,8 +154,11 @@ def clean_trials(trials, raw_rec, gaps_start_stop):
         trials['has_gap'] = False
 
     if trials['has_gap'].sum() > 1:
-        print(f"Exclude {trials['has_gap'].sum()} trials because of occuring recording gaps within.")
+        print(f"Exclude {trials['has_gap'].sum()} trials because of recording gaps  occuring within.")
         trials = trials.query('has_gap == False')
+    else:
+        print(f"No trials discarded")
+
     trials.drop(columns=["has_gap", "bpod_stop_time", "bpod_start_time", "DIO_start_sample", "DIO_start_time"])
     trials.index.name = "trial_n"
 
@@ -182,7 +194,7 @@ def get_timestamps_from_rec(path_recording_folder,  path_recording):
 
 def find_mat_files_with_same_day(base_path, path_recording_folder, raw_rec):
     ''' Checks in bpod_session folder for folder with the same date as the recording.
-    Exclude files recorded outside the recording.
+    Exclude files recorded outside the recording. Return files sorted by time.
     '''
     time_rec = get_recording_time(path_recording_folder)
     end_time_rec = (datetime.combine(date.today(),  time_rec ) + timedelta(seconds=raw_rec.get_total_duration())).time() # we need a date to add times
@@ -224,7 +236,7 @@ def check_gpu_availability():
 
 def find_min_distance_TTL(DIO_samples_start_trial, start_times_bpod, ax=None):
     ''' Find the minimum distances acrosss DIO and bpod timestamps for each TTL pulse (start trial, 0 to 1)'''
-    print_in_color(f"len DIO:{len(DIO_samples_start_trial)}, len Bpod:{len(start_times_bpod)}", "red")
+    print_in_color(f"len DIO:{len(DIO_samples_start_trial)}, len Bpod:{len(start_times_bpod)}", "green")
 
     array1 = (DIO_samples_start_trial - DIO_samples_start_trial[0]).copy()
 
@@ -302,6 +314,7 @@ def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial, ax=None):
         print(
             f"Bpod session started at {bpod_data['Info']['SessionStartTime_UTC']}, duration: {bpod_data['TrialEndTimestamp'][-1] / 60} min, ended at: {(datetime.strptime(bpod_data['Info']['SessionStartTime_UTC'], '%H:%M:%S') + timedelta(minutes=bpod_data['TrialEndTimestamp'][-1] / 60)).strftime('%H:%M:%S')}")  # not used in calculations
         print(f"number trials: {len(bpod_data['TrialStartTimestamp'])}")
+
         if n == 0:
             trial_start_times.extend(bpod_data['TrialStartTimestamp'])
             trial_stop_times.extend(bpod_data['TrialEndTimestamp'])
@@ -312,6 +325,7 @@ def stitch_bpod_times(bpod_file, day, DIO_timestamps_start_trial, ax=None):
                 DIO_timestamps_start_trial_zeroed).max() + prev_last_stop)
             collect_gaps_between_blocks.append([prev_last_start, np.diff(
                 DIO_timestamps_start_trial_zeroed).max()])
+
         stimulus_name.extend(
             [bpod_data["Info"]["SessionProtocolBranchURL"].split("/")[-1]] * len(bpod_data['TrialEndTimestamp']))
         stimulus_block.extend(np.repeat(block_n, len(bpod_data['TrialEndTimestamp'])))
@@ -435,3 +449,40 @@ def plot_probe(raw_rec, channel_labels):
 
     return pn.Column(y_lim_widget, inspect_probes_channels_labels)
 
+def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
+
+    split_preprocessed_recording = raw_rec.split_by("group")
+
+    for group, sub_rec in tqdm(split_preprocessed_recording.items()):
+        print(f"add_custom_metrics_to_phy_folder for probe{group}")
+        write_binary_recording(sub_rec,
+                               file_paths=f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/recording.dat",
+                               **job_kwargs)
+
+        with (f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/params.py").open("w") as f:
+            f.write(f"dat_path = r'recording.dat'\n")
+
+        sorting = read_sorter_folder(f"{path_recording_folder}/spike_interface_output/probe{group}")
+        # compute 'isi_violation', 'presence_ratio' to add to phy
+        analyzer = create_sorting_analyzer(sorting, sub_rec, sparse=True, format="memory", **job_kwargs,
+                                           folder=f"{path_recording_folder}/spike_interface_output/probe{group}/sorting_analyzer")
+
+        analyzer.compute({"random_spikes": dict(method="uniform", max_spikes_per_unit=500),
+                          "templates": dict(),
+                          "noise_levels": dict(),
+                          "quality_metrics": dict(metric_names=['isi_violation', 'presence_ratio'])})
+        metrics = analyzer.get_extension('quality_metrics').get_data()
+        metrics.index.name = "cluster_id"
+        metrics.reset_index(inplace=True)
+        # create .tsv files in sorter_output folder
+        for metric in ['isi_violation', 'presence_ratio']:
+            metrics[["cluster_id", metric]].to_csv(
+                f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/cluster_{metric}.tsv",
+                sep="\t", index=False)
+
+        # Use ks labels as default
+        kslabels = pd.read_csv(
+            f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/cluster_KSLabel.tsv", sep="\t")
+        kslabels.rename(columns={"KSLabel": "group"}, inplace=True)
+        kslabels.to_csv(f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/cluster_group.tsv",
+                        sep="\t", index=False)

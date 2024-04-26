@@ -1,9 +1,20 @@
+
 from spikeinterface.extractors import read_spikegadgets
-from Utils.Utils import clean_trials, get_timestamps_from_rec, get_recording_time, assign_DIO_times_to_trials, \
+from spikeinterface.preprocessing import detect_bad_channels
+from tqdm.notebook import tqdm
+from colored import Fore, Back, Style
+from pathlib import Path
+from Utils.Utils import add_custom_metrics_to_phy_folder, check_gpu_availability, clean_trials, get_timestamps_from_rec, get_recording_time, assign_DIO_times_to_trials, \
     Trim_TTLs, select_DIO_sync_trial_trace, stitch_bpod_times, find_min_distance_TTL, call_trodesexport, \
     check_single_rec_file, check_timestamps_gaps, get_mouse_name, get_recording_day, find_mat_files_with_same_day
-from pathlib import Path
+from Utils.Utils import print_in_color
 import matplotlib.pyplot as plt
+import os
+from spikeinterface.sorters import run_sorter
+import pandas as pd
+import numpy as np
+
+check_gpu_availability()
 # # **Ott lab process single session**
 # #####  Multi-Neuropixels recording using SpikeGadgets + Bpod
 
@@ -20,16 +31,15 @@ import matplotlib.pyplot as plt
 # # Select file
 
 def process_trials(path):
-    path = Path(path)
-    print(f"Processing session {path.name}")
+    path_recording_folder = Path(path)
+
+    print(f'{Fore.white}{Back.green}Processing session {path_recording_folder.name}{Style.reset}')
+
     fig, axs = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle(f"Session {path.name}", fontsize=16)
+    fig.suptitle(f"Session {path_recording_folder.name}", fontsize=16)
 
     axs = axs.ravel()
 
-    # folder containing .rec file
-    path_recording_folder = path
-    #path_recording_folder = Path(r"O:\data\12\ephys\20240126_184212.rec")
 
     mouse_n = get_mouse_name(path_recording_folder)
     day = get_recording_day(path_recording_folder)
@@ -37,7 +47,6 @@ def process_trials(path):
     print(f"mouse {mouse_n} recorded on {day} at {time}")
 
     path_recording, rec_file_name = check_single_rec_file(path_recording_folder)
-
 
     # ## Extract timestamps from .rec file
 
@@ -48,12 +57,15 @@ def process_trials(path):
     raw_rec = read_spikegadgets(path_recording)
     fs = raw_rec.get_sampling_frequency()
     correct_times = timestamps/fs
+    raw_rec.set_times(correct_times)  # set new times
+
+    print(f"Recording duration in minutes: {raw_rec.get_total_duration() / 60}, sampling rate: {fs} Hz")
+    print(f"Probes present: {raw_rec.get_probes()}")
+
 
     gaps_start_stop = check_timestamps_gaps(raw_rec, correct_times)
 
-
     # # Sync Bpod and Trodes streams
-
     # ### Export Digital IO channels
 
     call_trodesexport(path_recording_folder, path_recording, "dio")
@@ -71,7 +83,7 @@ def process_trials(path):
     min_distances = find_min_distance_TTL(DIO_timestamps_start_trial,  trials["bpod_start_time"], axs[1])
 
     # only adapted to case where there is a extra TTL in the DIO at the end of last stimulus block!
-    DIO_timestamps_start_trial,  DIO_samples_start_trial = Trim_TTLs(trials, DIO_timestamps_start_trial, DIO_samples_start_trial,min_distances)
+    DIO_timestamps_start_trial,  DIO_samples_start_trial = Trim_TTLs(trials, DIO_timestamps_start_trial, DIO_samples_start_trial, min_distances)
 
 
     min_distances = find_min_distance_TTL(DIO_timestamps_start_trial,  trials["bpod_start_time"], axs[2])
@@ -84,7 +96,70 @@ def process_trials(path):
 
     cleaned_trials.to_csv(Path(f"{path_recording_folder}/trials.csv"))
 
+    print_in_color(f"Session {path.name} processed","green")
+
     plt.tight_layout()
     plt.show()
 
 
+def spikesort(path):
+
+    path_recording_folder = Path(path)
+
+    print(f'{Fore.white}{Back.green}Spikesorting session {path.name}{Style.reset}')
+
+    mouse_n = get_mouse_name(path_recording_folder)
+    day = get_recording_day(path_recording_folder)
+    time = get_recording_time(path_recording_folder)
+    print(f"mouse {mouse_n} recorded on {day} at {time}")
+
+    path_recording, rec_file_name = check_single_rec_file(path_recording_folder)
+
+    timestamps = get_timestamps_from_rec(path_recording_folder, path_recording)
+    raw_rec = read_spikegadgets(path_recording)
+
+    fs = raw_rec.get_sampling_frequency()
+
+    correct_times = timestamps / fs
+    raw_rec.set_times(correct_times)  # set new times
+
+    print(f"Recording duration in minutes: {raw_rec.get_total_duration() / 60}, sampling rate: {fs} Hz")
+    print(f"Probes present: {raw_rec.get_probes()}")
+
+    if os.path.exists(f"{path_recording_folder}/channel_labels.csv"):
+        channel_labels = pd.read_csv(f"{path_recording_folder}/channel_labels.csv")
+    else:
+        bad_channel_ids_list = []
+        channel_labels_list = []
+        # detect noisy, dead, and out-of-brain channels
+        split_preprocessed_recording = raw_rec.split_by("group")
+        for group, sub_rec in tqdm(split_preprocessed_recording.items()):
+            bad_channel_ids, channel_labels = detect_bad_channels(sub_rec)
+
+            # count bad channels
+            count = np.unique(channel_labels, return_counts=True)
+            if (count[0].shape[0] == 1) & (count[0][0] == "good"):
+                print(f"no bad channels in probe{group}")
+            else:
+                for n in range(count[0].shape[0]):
+                    print(f"{count[1][n]} {count[0][n]} channels in probe{group}")
+
+            bad_channel_ids_list.append(bad_channel_ids)
+            channel_labels_list.extend(channel_labels)
+    channel_labels = pd.DataFrame([channel_labels_list], index=["channel_labels"])
+    channel_labels.to_csv(f"{path_recording_folder}/channel_labels.csv", index=False)
+
+    raw_rec = raw_rec.remove_channels(bad_channel_ids)
+    print("bad channels removed")
+
+    split_preprocessed_recording = raw_rec.split_by("group")
+    for group, sub_rec in split_preprocessed_recording.items():
+        sorting = run_sorter(
+            sorter_name="kilosort4",
+            recording=sub_rec,
+            output_folder=f"{path_recording_folder}/spike_interface_output/probe{group}",
+            verbose=True,
+            remove_existing_folder=True
+        )
+
+    add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder)
