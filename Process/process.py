@@ -96,7 +96,7 @@ def process_trials(path):
 
     cleaned_trials.to_csv(Path(f"{path_recording_folder}/trials.csv"))
 
-    print_in_color(f"Session {path.name} processed","green")
+    print_in_color(f"Session {path_recording_folder.name} processed","green")
 
     plt.tight_layout()
     plt.show()
@@ -106,7 +106,7 @@ def spikesort(path):
 
     path_recording_folder = Path(path)
 
-    print(f'{Fore.white}{Back.green}Spikesorting session {path.name}{Style.reset}')
+    print(f'{Fore.white}{Back.green}Spikesorting session {path_recording_folder.name}{Style.reset}')
 
     mouse_n = get_mouse_name(path_recording_folder)
     day = get_recording_day(path_recording_folder)
