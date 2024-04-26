@@ -4,6 +4,7 @@ from Utils.Paths import path_to_trodes_export
 import numpy as np
 from Utils.Settings import max_ISI_gap_recording
 import torch
+import sys
 from tqdm import tqdm
 from spikeinterface.core import write_binary_recording
 from Utils.Settings import job_kwargs
@@ -133,10 +134,13 @@ def call_trodesexport(path_recording_folder, path_recording, flag):
         command = f"{path_to_trodes_export} -rec {path_recording} -{flag}"
         # Run the command
         try:
-            subprocess.run(command, check=True, shell=True, stdout=subprocess.PIPE, text=True)
+            if sys.platform == "win32":
+                subprocess.run(command, check=True, shell=False, stdout=subprocess.PIPE, text=True)
+            else:
+                subprocess.run(command, check=True, shell=True, stdout=subprocess.PIPE, text=True)
             print("Command executed successfully")
-        except subprocess.CalledProcessError:
-            print("An error occurred while executing the command.")
+        except subprocess.CalledProcessError as e:
+            print("An error occurred while executing the command:", e)
 
 
 def clean_trials(trials, raw_rec, gaps_start_stop):
@@ -180,7 +184,7 @@ def find_file(root_folder, target_file_name):
 
 def get_timestamps_from_rec(path_recording_folder,  path_recording):
     path_timestamps = find_file(path_recording_folder, "timestamps.dat")
-    if path_timestamps is None:
+    if len(path_timestamps)==0:
         print("Extracting timestamps using trodesexport -time")
         call_trodesexport(path_recording_folder, path_recording, "time")
         path_timestamps = find_file(path_recording_folder, "timestamps.dat")
