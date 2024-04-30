@@ -6,7 +6,6 @@ sessions = [r"/alzheimer/Roberto/Dariya/12/ephys/20231210_191835.rec/",
             r"/alzheimer/Roberto/Dariya/12/ephys/20240126_184212.rec/",
             r"/alzheimer/Roberto/Dariya/12/ephys/20231212_183552.rec/"]
 
-
 n=0
 
 for session in tqdm(sessions):

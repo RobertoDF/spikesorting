@@ -142,19 +142,16 @@ def spikesort(path):
 
             bad_channel_ids_list.append(bad_channel_ids)
             channel_labels_list.extend(channel_labels)
+
         channel_labels = pd.DataFrame([channel_labels_list], index=["channel_labels"])
         channel_labels.to_csv(f"{path_recording_folder}/channel_labels.csv", index=False)
 
-    print(channel_labels["channel_labels"].value_counts())
-
     bad_channel_ids = channel_labels[~(channel_labels["channel_labels"] == "good")]
 
-    channels_colors = [channel_label_color_dict[label] for label in channel_labels["channel_labels"]]
-
-    plot_probe_map(raw_rec, color_channels=channels_colors, ax=axs, with_channel_ids=False)
+    print(channel_labels["channel_labels"].value_counts())
 
     raw_rec = raw_rec.remove_channels(bad_channel_ids)
-    print("bad channels removed")
+    print(f"{len(bad_channel_ids)} bad channels removed")
 
     torch.cuda.empty_cache()
 

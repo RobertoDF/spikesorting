@@ -476,6 +476,9 @@ def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
             file.writelines(
                 ['dat_path = r\'recording.dat\'\n' if line.startswith('dat_path =') else line for line in lines])
 
+        sorting = read_sorter_folder(f"{path_recording_folder}/spike_interface_output/probe{group}")
+        # sorting = read_phy(f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/")
+
         # compute 'isi_violation', 'presence_ratio' to add to phy
         analyzer = create_sorting_analyzer(sorting, sub_rec, sparse=True, format="memory", **job_kwargs,
                                            folder=f"{path_recording_folder}/spike_interface_output/probe{group}/sorting_analyzer")
