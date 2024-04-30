@@ -43,7 +43,6 @@ def process_trials(path):
 
     axs = axs.ravel()
 
-
     mouse_n = get_mouse_name(path_recording_folder)
     day = get_recording_day(path_recording_folder)
     time = get_recording_time(path_recording_folder)

@@ -459,19 +459,23 @@ def plot_probe(raw_rec, channel_labels):
     return pn.Column(y_lim_widget, pn.pane.Matplotlib(inspect_probes_channels_labels))
 
 def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
-
     split_preprocessed_recording = raw_rec.split_by("group")
 
-    for group, sub_rec in tqdm(split_preprocessed_recording.items()):
-        print(f"add_custom_metrics_to_phy_folder for probe{group}")
+    for group, sub_rec in split_preprocessed_recording.items():
         write_binary_recording(sub_rec,
                                file_paths=f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/recording.dat",
                                **job_kwargs)
 
-        with Path(f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/params.py").open("w") as f:
-            f.write(f"dat_path = r'recording.dat'\n")
+        params_path = Path(f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/params.py")
 
-        sorting = read_sorter_folder(f"{path_recording_folder}/spike_interface_output/probe{group}")
+        # modify params.py to point at .dat file extracted
+        with open(params_path, 'r') as file:
+            lines = file.readlines()
+
+        with open(params_path, 'w') as file:
+            file.writelines(
+                ['dat_path = r\'recording.dat\'\n' if line.startswith('dat_path =') else line for line in lines])
+
         # compute 'isi_violation', 'presence_ratio' to add to phy
         analyzer = create_sorting_analyzer(sorting, sub_rec, sparse=True, format="memory", **job_kwargs,
                                            folder=f"{path_recording_folder}/spike_interface_output/probe{group}/sorting_analyzer")
