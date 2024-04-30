@@ -166,6 +166,11 @@ def clean_trials(trials, raw_rec, gaps_start_stop):
     trials.drop(columns=["has_gap", "bpod_stop_time", "bpod_start_time", "DIO_start_sample", "DIO_start_time"])
     trials.index.name = "trial_n"
 
+    trials["RewardStartTimeAbsolute"] = trials["RewardStartTime"] + trials["start_time"]
+    trials["StimulusStartTimeAbsolute"] = trials["StimulusStartTime"] + trials["start_time"]
+
+    trials.columns = [camel_to_snake(column) for column in trials.columns]
+
     return trials
 
 def check_overlap(trial_start, trial_stop, gap_starts, gap_stops):
@@ -449,9 +454,9 @@ def plot_probe(raw_rec, channel_labels):
 
         axs[0].add_patch(rect)
         plt.close()
-        return pn.pane.Matplotlib(fig)
+        return fig
 
-    return pn.Column(y_lim_widget, inspect_probes_channels_labels)
+    return pn.Column(y_lim_widget, pn.pane.Matplotlib(inspect_probes_channels_labels))
 
 def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
 
@@ -463,7 +468,7 @@ def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
                                file_paths=f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/recording.dat",
                                **job_kwargs)
 
-        with (f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/params.py").open("w") as f:
+        with Path(f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/params.py").open("w") as f:
             f.write(f"dat_path = r'recording.dat'\n")
 
         sorting = read_sorter_folder(f"{path_recording_folder}/spike_interface_output/probe{group}")
@@ -490,3 +495,6 @@ def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
         kslabels.rename(columns={"KSLabel": "group"}, inplace=True)
         kslabels.to_csv(f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/cluster_group.tsv",
                         sep="\t", index=False)
+
+def camel_to_snake(name):
+    return ''.join(['_' + i.lower() if i.isupper() else i for i in name]).lstrip('_')

@@ -1,9 +1,10 @@
-
+# TODO chech set times persists and propagate to sorting too
 from spikeinterface.extractors import read_spikegadgets
 from spikeinterface.preprocessing import detect_bad_channels
 from tqdm.notebook import tqdm
 from colored import Fore, Back, Style
 from pathlib import Path
+import torch
 from Utils.Utils import add_custom_metrics_to_phy_folder, check_gpu_availability, clean_trials, get_timestamps_from_rec, get_recording_time, assign_DIO_times_to_trials, \
     Trim_TTLs, select_DIO_sync_trial_trace, stitch_bpod_times, find_min_distance_TTL, call_trodesexport, \
     check_single_rec_file, check_timestamps_gaps, get_mouse_name, get_recording_day, find_mat_files_with_same_day
@@ -13,6 +14,8 @@ import os
 from spikeinterface.sorters import run_sorter
 import pandas as pd
 import numpy as np
+from Utils.Settings import channel_label_color_dict
+from spikeinterface.widgets import plot_probe_map
 
 check_gpu_availability()
 # # **Ott lab process single session**
@@ -103,8 +106,10 @@ def process_trials(path):
 
 
 def spikesort(path):
-
     path_recording_folder = Path(path)
+
+    fig, axs = plt.subplots(1, 1, figsize=(15, 10))
+    fig.suptitle(f"Session {path_recording_folder.name}", fontsize=16)
 
     print(f'{Fore.white}{Back.green}Spikesorting session {path_recording_folder.name}{Style.reset}')
 
@@ -136,21 +141,23 @@ def spikesort(path):
         for group, sub_rec in tqdm(split_preprocessed_recording.items()):
             bad_channel_ids, channel_labels = detect_bad_channels(sub_rec)
 
-            # count bad channels
-            count = np.unique(channel_labels, return_counts=True)
-            if (count[0].shape[0] == 1) & (count[0][0] == "good"):
-                print(f"no bad channels in probe{group}")
-            else:
-                for n in range(count[0].shape[0]):
-                    print(f"{count[1][n]} {count[0][n]} channels in probe{group}")
-
             bad_channel_ids_list.append(bad_channel_ids)
             channel_labels_list.extend(channel_labels)
-    channel_labels = pd.DataFrame([channel_labels_list], index=["channel_labels"])
-    channel_labels.to_csv(f"{path_recording_folder}/channel_labels.csv", index=False)
+        channel_labels = pd.DataFrame([channel_labels_list], index=["channel_labels"])
+        channel_labels.to_csv(f"{path_recording_folder}/channel_labels.csv", index=False)
+
+    print(channel_labels["channel_labels"].value_counts())
+
+    bad_channel_ids = channel_labels[~(channel_labels["channel_labels"] == "good")]
+
+    channels_colors = [channel_label_color_dict[label] for label in channel_labels["channel_labels"]]
+
+    plot_probe_map(raw_rec, color_channels=channels_colors, ax=axs, with_channel_ids=False)
 
     raw_rec = raw_rec.remove_channels(bad_channel_ids)
     print("bad channels removed")
+
+    torch.cuda.empty_cache()
 
     split_preprocessed_recording = raw_rec.split_by("group")
     for group, sub_rec in split_preprocessed_recording.items():
