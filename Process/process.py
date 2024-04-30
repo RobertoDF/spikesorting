@@ -1,4 +1,4 @@
-# TODO chech set times persists and propagate to sorting too
+
 from spikeinterface.extractors import read_spikegadgets
 from spikeinterface.preprocessing import detect_bad_channels
 from tqdm.notebook import tqdm
