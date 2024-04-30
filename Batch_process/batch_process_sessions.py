@@ -1,3 +1,4 @@
+# TODO test on windows, check times in sessiosn with gaps
 from Process.process import process_trials, spikesort
 from tqdm import tqdm
 from colored import Fore, Back, Style
