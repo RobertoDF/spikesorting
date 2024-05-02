@@ -139,7 +139,7 @@ def spikesort(path):
         # detect noisy, dead, and out-of-brain channels
         split_preprocessed_recording = raw_rec.split_by("group")
         for group, sub_rec in tqdm(split_preprocessed_recording.items()):
-            bad_channel_ids, channel_labels = detect_bad_channels(sub_rec, dead_channel_threshold=.1)
+            bad_channel_ids, channel_labels = detect_bad_channels(sub_rec)
 
             bad_channel_ids_list.append(bad_channel_ids)
             channel_labels_list.extend(channel_labels)
