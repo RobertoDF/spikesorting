@@ -135,18 +135,21 @@ def spikesort(path):
     else:
         bad_channel_ids_list = []
         channel_labels_list = []
+        channel_ids_list = []
         # detect noisy, dead, and out-of-brain channels
         split_preprocessed_recording = raw_rec.split_by("group")
         for group, sub_rec in tqdm(split_preprocessed_recording.items()):
-            bad_channel_ids, channel_labels = detect_bad_channels(sub_rec)
+            bad_channel_ids, channel_labels = detect_bad_channels(sub_rec, dead_channel_threshold=.1)
 
             bad_channel_ids_list.append(bad_channel_ids)
             channel_labels_list.extend(channel_labels)
+            channel_ids_list.extend(sub_rec.channel_ids)
 
-        channel_labels = pd.DataFrame([channel_labels_list], index=["channel_labels"])
+        channel_labels = pd.DataFrame([channel_ids_list, channel_labels_list],
+                                      index=["channel_ids", "channel_labels"]).T
         channel_labels.to_csv(f"{path_recording_folder}/channel_labels.csv", index=False)
 
-    bad_channel_ids = channel_labels[~(channel_labels["channel_labels"] == "good")]
+    bad_channel_ids = channel_labels[~(channel_labels["channel_labels"] == "good")]["channel_ids"].values
 
     print(channel_labels["channel_labels"].value_counts())
 

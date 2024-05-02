@@ -24,7 +24,6 @@ from Utils.Settings import channel_label_color_dict, trodesexport_flags_to_folde
 import spikeinterface.widgets as sw
 import re
 from datetime import time, date
-from IPython.display import display, HTML
 from colored import Fore, Back, Style
 
 # Function to print in color
@@ -33,8 +32,6 @@ def print_in_color(text, color):
         print(f"{Fore.red}{Back.white}{text}{Style.reset}")
     elif color == "green":
             print(f"{Fore.green}{Back.white}{text}{Style.reset}")
-
-
 
 def get_recording_time(path_recording_folder):
     # Convert the last part of the path (filename) to a string
@@ -459,6 +456,7 @@ def plot_probe(raw_rec, channel_labels):
     return pn.Column(y_lim_widget, pn.pane.Matplotlib(inspect_probes_channels_labels))
 
 def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
+
     split_preprocessed_recording = raw_rec.split_by("group")
 
     for group, sub_rec in split_preprocessed_recording.items():
@@ -480,8 +478,7 @@ def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
         # sorting = read_phy(f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/")
 
         # compute 'isi_violation', 'presence_ratio' to add to phy
-        analyzer = create_sorting_analyzer(sorting, sub_rec, sparse=True, format="memory", **job_kwargs,
-                                           folder=f"{path_recording_folder}/spike_interface_output/probe{group}/sorting_analyzer")
+        analyzer = create_sorting_analyzer(sorting, sub_rec, sparse=True, format="memory", **job_kwargs)
 
         analyzer.compute({"random_spikes": dict(method="uniform", max_spikes_per_unit=500),
                           "templates": dict(),
@@ -491,7 +488,7 @@ def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
         metrics.index.name = "cluster_id"
         metrics.reset_index(inplace=True)
         # create .tsv files in sorter_output folder
-        for metric in ['isi_violation', 'presence_ratio']:
+        for metric in ['isi_violation_ratio', 'presence_ratio']:
             metrics[["cluster_id", metric]].to_csv(
                 f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/cluster_{metric}.tsv",
                 sep="\t", index=False)
