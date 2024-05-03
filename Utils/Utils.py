@@ -488,7 +488,7 @@ def add_custom_metrics_to_phy_folder(raw_rec, path_recording_folder):
         metrics.index.name = "cluster_id"
         metrics.reset_index(inplace=True)
         # create .tsv files in sorter_output folder
-        for metric in ['isi_violation_ratio', 'presence_ratio']:
+        for metric in ['isi_violations_ratio', 'presence_ratio']:
             metrics[["cluster_id", metric]].to_csv(
                 f"{path_recording_folder}/spike_interface_output/probe{group}/sorter_output/cluster_{metric}.tsv",
                 sep="\t", index=False)
